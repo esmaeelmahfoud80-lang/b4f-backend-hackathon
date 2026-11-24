@@ -1,0 +1,1 @@
+export const MAX_POSTGRES_INT = 2_147_483_647;

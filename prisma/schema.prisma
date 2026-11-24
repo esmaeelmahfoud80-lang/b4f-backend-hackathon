@@ -1,0 +1,410 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "cjs"
+  importFileExtension = "js"
+  previewFeatures     = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MerchantVerificationStatus {
+  pending
+  verified
+  rejected
+
+
+  @@map("merchant_verification_status")
+}
+
+enum WalletRole {
+  merchant
+  marketer
+
+  @@map("wallet_role")
+}
+
+enum TopupPaymentMethod {
+  cash
+  sham_cash
+  syriatel_cash
+  bank_transfer
+
+  @@map("topup_payment_method")
+}
+
+enum CampaignType {
+  product
+  store_discount
+
+  @@map("campaign_type")
+}
+
+enum CommissionType {
+  fixed
+  percentage
+
+  @@map("commission_type")
+}
+
+enum JoinMode {
+  open
+  approval_required
+
+  @@map("join_mode")
+}
+
+enum CampaignStatus {
+  active
+  ended
+
+  @@map("campaign_status")
+}
+
+enum JoinStatus {
+  pending
+  approved
+  rejected
+
+  @@map("join_status")
+}
+
+enum OfferQrStatus {
+  active
+  redeemed
+  expired
+
+  @@map("offer_qr_status")
+}
+
+enum SaleAttributionSource {
+  marketer
+  merchant_direct
+
+  @@map("sale_attribution_source")
+}
+
+enum MoneyMovementKind {
+  merchant_topup
+  campaign_reserve_lock
+  campaign_reserve_unlock
+  sale_reserve_debit
+  marketer_commission_credit
+  customer_cashback_accrual
+  customer_cashback_unlock
+  platform_net_fee
+  payout_hold
+  payout_release_refund
+  payout_completed
+
+  @@map("money_movement_kind")
+}
+
+enum PayoutStatus {
+  pending_review
+  confirmed
+  rejected
+
+  @@map("payout_status")
+}
+
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phone        String   @unique @db.VarChar(10)
+  name         String
+  passwordHash String   @map("password_hash")
+  isCustomer   Boolean  @default(false) @map("is_customer")
+  isMarketer   Boolean  @default(false) @map("is_marketer")
+  isAdmin      Boolean  @default(false) @map("is_admin")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  sessions            UserSession[]
+  merchantProfile     MerchantProfile?
+  customerProfile     CustomerProfile?
+  wallets             Wallet[]
+  campaignMemberships CampaignMarketer[]
+  administeredTopups  MerchantTopup[]
+  idempotencyRecords  IdempotencyRecord[]
+  payoutRequests      PayoutRequest[] @relation("PayoutMarketer")
+  decidedPayouts      PayoutRequest[] @relation("PayoutDecider")
+
+  @@map("users")
+}
+
+model UserSession {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  refreshTokenHash String    @unique @map("refresh_token_hash")
+  lastActivityAt   DateTime  @default(now()) @map("last_activity_at") @db.Timestamptz(3)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@map("user_sessions")
+}
+
+model MerchantProfile {
+  userId             String                     @id @map("user_id") @db.Uuid
+  shopName           String                     @map("shop_name")
+  shopDetails        String                     @map("shop_details")
+  contractReference  String?                    @map("contract_reference")
+  verificationStatus MerchantVerificationStatus @default(pending) @map("verification_status")
+  creditLimitSyp     BigInt                     @default(0) @map("credit_limit_syp")
+
+  user      User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  topups    MerchantTopup[]
+  campaigns Campaign[]
+  sales     Sale[]
+
+  @@map("merchant_profiles")
+}
+
+model CustomerProfile {
+  userId                 String @id @map("user_id") @db.Uuid
+  verifiedPurchaseCount  Int    @default(0) @map("verified_purchase_count")
+  milestonePurchaseCount Int    @default(0) @map("milestone_purchase_count")
+  milestoneSpendSyp      BigInt @default(0) @map("milestone_spend_syp")
+  lockedCashbackSyp      BigInt @default(0) @map("locked_cashback_syp")
+  availableCashbackSyp   BigInt @default(0) @map("available_cashback_syp")
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  offerQrPasses  OfferQrPass[]
+  sales          Sale[]
+  moneyMovements MoneyMovement[]
+
+  @@map("customer_profiles")
+}
+
+model Wallet {
+  id                  String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId              String     @map("user_id") @db.Uuid
+  role                WalletRole
+  availableBalanceSyp BigInt     @default(0) @map("available_balance_syp")
+  pendingPayoutSyp    BigInt     @default(0) @map("pending_payout_syp")
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  moneyMovements MoneyMovement[]
+  payoutRequests PayoutRequest[]
+
+  @@unique([userId, role])
+  @@unique([id, userId, role])
+  @@map("wallets")
+}
+
+model PayoutRequest {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  marketerId       String       @map("marketer_id") @db.Uuid
+  walletId         String       @map("wallet_id") @db.Uuid
+  walletRole       WalletRole   @default(marketer) @map("wallet_role")
+  amountSyp        BigInt       @map("amount_syp")
+  status           PayoutStatus @default(pending_review)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  decidedAt        DateTime?    @map("decided_at") @db.Timestamptz(3)
+  decidedById      String?      @map("decided_by_id") @db.Uuid
+  rejectionReason String?      @map("rejection_reason") @db.VarChar(500)
+
+  marketer       User            @relation("PayoutMarketer", fields: [marketerId], references: [id], onDelete: Restrict)
+  wallet         Wallet          @relation(fields: [walletId, marketerId, walletRole], references: [id, userId, role], onDelete: Restrict, onUpdate: Restrict)
+  decidedBy      User?           @relation("PayoutDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  moneyMovements MoneyMovement[]
+
+  @@unique([id, walletId, amountSyp])
+  @@unique([marketerId], map: "payout_requests_one_pending_key", where: raw("status = 'pending_review'"))
+  @@index([marketerId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([status, createdAt(sort: Desc), id(sort: Desc)])
+  @@map("payout_requests")
+}
+
+model MerchantTopup {
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId    String             @map("merchant_id") @db.Uuid
+  adminId       String             @map("admin_id") @db.Uuid
+  amountSyp     BigInt             @map("amount_syp")
+  // Null only for historical rows without a provable post-credit balance.
+  merchantNewAvailableBalanceSyp BigInt? @map("merchant_new_available_balance_syp")
+  paymentMethod TopupPaymentMethod @map("payment_method")
+  referenceNote String             @map("reference_note")
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  merchant       MerchantProfile @relation(fields: [merchantId], references: [userId], onDelete: Restrict)
+  admin          User            @relation(fields: [adminId], references: [id], onDelete: Restrict)
+  moneyMovements MoneyMovement[]
+
+  @@index([merchantId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@map("merchant_topups")
+}
+
+model Campaign {
+  id                  String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId          String         @map("merchant_id") @db.Uuid
+  campaignType        CampaignType   @map("campaign_type")
+  productName         String         @map("product_name")
+  description         String
+  imageUrl            String         @map("image_url")
+  originalPriceSyp    BigInt?        @map("original_price_syp")
+  discountPercent     Decimal        @map("discount_percent") @db.Decimal(5, 2)
+  commissionType      CommissionType @map("commission_type")
+  commissionValue     Decimal        @map("commission_value") @db.Decimal(18, 2)
+  joinMode            JoinMode       @map("join_mode")
+  maxItems            Int?           @map("max_items")
+  maxSalesVolumeSyp   BigInt?        @map("max_sales_volume_syp")
+  worstCaseReserveSyp BigInt         @map("worst_case_reserve_syp")
+  lockedBudgetSyp     BigInt         @map("locked_budget_syp")
+  directReferralCode  String?        @unique @map("direct_referral_code") @db.VarChar
+  status              CampaignStatus @default(active)
+  endsAt              DateTime       @map("ends_at") @db.Timestamptz(3)
+  closedAt            DateTime?      @map("closed_at") @db.Timestamptz(3)
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  merchant       MerchantProfile    @relation(fields: [merchantId], references: [userId], onDelete: Restrict)
+  memberships    CampaignMarketer[]
+  referralClicks ReferralClick[]
+  offerQrPasses  OfferQrPass[]
+  sales          Sale[]
+  moneyMovements MoneyMovement[]
+
+  @@unique([id, merchantId])
+  @@index([merchantId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([status, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([status, endsAt])
+  @@map("campaigns")
+}
+
+model CampaignMarketer {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  campaignId   String     @map("campaign_id") @db.Uuid
+  marketerId   String     @map("marketer_id") @db.Uuid
+  status       JoinStatus
+  referralCode String?    @unique @map("referral_code") @db.VarChar
+  requestedAt  DateTime   @default(now()) @map("requested_at") @db.Timestamptz(3)
+
+  campaign       Campaign        @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  marketer       User            @relation(fields: [marketerId], references: [id], onDelete: Restrict)
+  referralClicks ReferralClick[]
+  offerQrPasses  OfferQrPass[]
+  sales          Sale[]
+
+  @@unique([campaignId, marketerId])
+  @@unique([id, campaignId])
+  @@index([marketerId, requestedAt(sort: Desc), id(sort: Desc)])
+  @@map("campaign_marketers")
+}
+
+model ReferralClick {
+  id                 BigInt   @id @default(autoincrement())
+  campaignId         String   @map("campaign_id") @db.Uuid
+  campaignMarketerId String?  @map("campaign_marketer_id") @db.Uuid
+  openedAt           DateTime @default(now()) @map("opened_at") @db.Timestamptz(3)
+
+  campaign         Campaign          @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  campaignMarketer CampaignMarketer? @relation(fields: [campaignMarketerId, campaignId], references: [id, campaignId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([campaignId, campaignMarketerId])
+  @@map("referral_clicks")
+}
+
+model OfferQrPass {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  campaignId         String        @map("campaign_id") @db.Uuid
+  campaignMarketerId String?       @map("campaign_marketer_id") @db.Uuid
+  customerId         String        @map("customer_id") @db.Uuid
+  qrToken            String        @unique @map("qr_token") @db.VarChar
+  passCode           String        @unique @map("pass_code") @db.VarChar
+  status             OfferQrStatus @default(active)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  redeemedAt         DateTime?     @map("redeemed_at") @db.Timestamptz(3)
+
+  campaign         Campaign          @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  campaignMarketer CampaignMarketer? @relation(fields: [campaignMarketerId, campaignId], references: [id, campaignId], onDelete: Restrict, onUpdate: Restrict)
+  customer         CustomerProfile   @relation(fields: [customerId], references: [userId], onDelete: Restrict)
+  sale             Sale?
+
+  @@unique([id, campaignId, customerId])
+  @@unique([campaignId, customerId, campaignMarketerId], map: "offer_qr_passes_active_marketer_key", where: raw("status = 'active' AND campaign_marketer_id IS NOT NULL"))
+  @@unique([campaignId, customerId], map: "offer_qr_passes_active_direct_key", where: raw("status = 'active' AND campaign_marketer_id IS NULL"))
+  @@index([campaignId, status])
+  @@map("offer_qr_passes")
+}
+
+model Sale {
+  id                      String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  offerQrPassId           String                @unique @map("offer_qr_pass_id") @db.Uuid
+  campaignId              String                @map("campaign_id") @db.Uuid
+  merchantId              String                @map("merchant_id") @db.Uuid
+  campaignMarketerId      String?               @map("campaign_marketer_id") @db.Uuid
+  customerId              String                @map("customer_id") @db.Uuid
+  attributionSource       SaleAttributionSource @map("attribution_source")
+  quantity                Int
+  originalAmountSyp       BigInt                @map("original_amount_syp")
+  customerPaidCashSyp     BigInt                @map("customer_paid_cash_syp")
+  marketerCommissionSyp   BigInt                @map("marketer_commission_syp")
+  platformTotalFeeSyp     BigInt                @map("platform_total_fee_syp")
+  customerCashbackSyp     BigInt                @map("customer_cashback_syp")
+  platformNetFeeSyp       BigInt                @map("platform_net_fee_syp")
+  totalDeductedReserveSyp BigInt                @map("total_deducted_reserve_syp")
+  scannedAt               DateTime              @default(now()) @map("scanned_at") @db.Timestamptz(3)
+
+  offerQrPass      OfferQrPass       @relation(fields: [offerQrPassId, campaignId, customerId], references: [id, campaignId, customerId], onDelete: Restrict, onUpdate: Restrict)
+  campaign         Campaign          @relation(fields: [campaignId, merchantId], references: [id, merchantId], onDelete: Restrict, onUpdate: Restrict)
+  merchant         MerchantProfile   @relation(fields: [merchantId], references: [userId], onDelete: Restrict)
+  campaignMarketer CampaignMarketer? @relation(fields: [campaignMarketerId, campaignId], references: [id, campaignId], onDelete: Restrict, onUpdate: Restrict)
+  customer         CustomerProfile   @relation(fields: [customerId], references: [userId], onDelete: Restrict)
+  moneyMovements   MoneyMovement[]
+
+  @@unique([offerQrPassId, campaignId, customerId])
+  @@index([campaignId])
+  @@index([campaignMarketerId])
+  @@index([customerId, scannedAt(sort: Desc), id(sort: Desc)])
+  @@map("sales")
+}
+
+model MoneyMovement {
+  id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  walletId   String?           @map("wallet_id") @db.Uuid
+  campaignId String?           @map("campaign_id") @db.Uuid
+  saleId     String?           @map("sale_id") @db.Uuid
+  topupId    String?           @map("topup_id") @db.Uuid
+  customerId String?           @map("customer_id") @db.Uuid
+  payoutId   String?           @map("payout_id") @db.Uuid
+  kind       MoneyMovementKind
+  amountSyp  BigInt            @map("amount_syp")
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  wallet   Wallet?          @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  campaign Campaign?        @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  sale     Sale?            @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  topup    MerchantTopup?   @relation(fields: [topupId], references: [id], onDelete: Restrict)
+  customer CustomerProfile? @relation(fields: [customerId], references: [userId], onDelete: Restrict)
+  payout   PayoutRequest?   @relation(fields: [payoutId, walletId, amountSyp], references: [id, walletId, amountSyp], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([payoutId, kind])
+  @@unique([payoutId], map: "money_movements_payout_terminal_key", where: raw("(kind = ANY (ARRAY['payout_release_refund'::money_movement_kind, 'payout_completed'::money_movement_kind]))"))
+  @@index([walletId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([campaignId])
+  @@index([saleId])
+  @@index([topupId])
+  @@index([customerId, kind])
+  @@map("money_movements")
+}
+
+model IdempotencyRecord {
+  actorId            String   @map("actor_id") @db.Uuid
+  operation          String
+  requestKey         String   @map("request_key") @db.Uuid
+  requestFingerprint String   @map("request_fingerprint")
+  responseStatus     Int      @map("response_status")
+  responseBody       Json     @map("response_body") @db.JsonB
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  actor User @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@id([actorId, operation, requestKey])
+  @@map("idempotency_records")
+}

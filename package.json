@@ -1,0 +1,58 @@
+{
+  "name": "affiliate-marketing-backend",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": "^22.13.0 || >=24"
+  },
+  "scripts": {
+    "start": "node dist/main.js",
+    "prestart:dev": "npm run prisma:generate",
+    "start:dev": "nest start --watch",
+    "prebuild": "npm run prisma:generate",
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint src test",
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "db:check": "npm run build && node dist/prisma/check-connection.js",
+    "predb:seed": "npm run build",
+    "db:seed": "node --env-file-if-exists=.env dist/prisma/seed.js",
+    "admin:bootstrap": "node dist/admin/bootstrap-admin.js",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.cjs"
+  },
+  "dependencies": {
+    "@imagekit/nodejs": "^7.15.0",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/config": "^4.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/swagger": "^11.0.0",
+    "@nestjs/throttler": "^6.0.0",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "bcrypt": "^6.0.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.2",
+    "pg": "^8.16.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "sharp": "^0.35.5"
+  },
+  "overrides": {
+    "@prisma/config": {
+      "effect": "3.22.5"
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@nestjs/cli": "^12.0.15",
+    "@types/bcrypt": "^6.0.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^10.0.0",
+    "prisma": "7.10.1",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.0.0"
+  }
+}
